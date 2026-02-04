@@ -1,0 +1,142 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                Int       @id @default(autoincrement())
+  name              String
+  email             String    @unique
+  phone             String?   @unique
+  password          String
+  role              String    @default("USER") // USER - keeping for backward compatibility but mostly unused for Auth now if separate
+  isEmailVerified   Boolean   @default(false)
+  isPhoneVerified   Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  userServices      UserService[]
+  documents         Document[]
+  tickets           SupportTicket[]
+}
+
+model Admin {
+  id                Int       @id @default(autoincrement())
+  name              String
+  email             String    @unique
+  password          String
+  role              String    @default("ADMIN") // ADMIN, SUPER_ADMIN
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+model Service {
+  id                Int       @id @default(autoincrement())
+  name              String
+  description       String
+  price             Decimal
+  requiredDocuments String    // JSON array stored as string: ["doc1", "doc2"]
+  roadmap           String?   // JSON array stored as string: [{"step": 1, "title": "Apply", "description": "..."}]
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  userServices      UserService[]
+}
+
+model UserService {
+  id        Int           @id @default(autoincrement())
+  userId    Int
+  serviceId Int
+  status    String        @default("PENDING_PAYMENT") // PENDING_PAYMENT, ACTIVE, COMPLETED, CANCELLED
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  user      User          @relation(fields: [userId], references: [id])
+  service   Service       @relation(fields: [serviceId], references: [id])
+  payments  Payment[]
+  documents Document[]
+}
+
+model Payment {
+  id            Int           @id @default(autoincrement())
+  userServiceId Int
+  amount        Decimal
+  currency      String        @default("INR")
+  status        String        @default("CREATED") // CREATED, SUCCESS, FAILED
+  transactionId String?
+  orderId       String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  userService   UserService   @relation(fields: [userServiceId], references: [id])
+}
+
+model Document {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  userServiceId Int?
+  url           String
+  fileName      String
+  fileType      String
+  uploadedAt    DateTime @default(now())
+
+  user          User         @relation(fields: [userId], references: [id])
+  userService   UserService? @relation(fields: [userServiceId], references: [id])
+}
+
+model SupportTicket {
+  id        Int          @id @default(autoincrement())
+  userId    Int
+  subject   String
+  message   String
+  status    String       @default("OPEN") // OPEN, IN_PROGRESS, RESOLVED, CLOSED
+  adminReply String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  user      User         @relation(fields: [userId], references: [id])
+}
+
+model OTP {
+  id        Int      @id @default(autoincrement())
+  email     String
+  otp       String
+  type      String   // EMAIL_VERIFICATION, PASSWORD_RESET
+  expiresAt DateTime
+  isUsed    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email, type])
+}
+
+model ConsultationRequest {
+  id               Int                   @id @default(autoincrement())
+  fullName         String
+  email            String
+  mobile           String
+  city             String
+  preferredContact String                // phone, email, whatsapp
+  clientType       String                // individual, company
+  businessName     String?
+  industry         String
+  annualTurnover   String
+  description      String?
+  status           String                @default("NEW") // NEW, CONTACTED, IN_PROGRESS, CLOSED
+  ipAddress        String?
+  userAgent        String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  services         ConsultationService[]
+}
+
+model ConsultationService {
+  id             Int                 @id @default(autoincrement())
+  consultationId Int
+  serviceCode    String
+  consultation   ConsultationRequest @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+}

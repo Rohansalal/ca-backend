@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+# package-lock.json # Committing lock file is recommended for reproducible builds
+
+# Environment variables
+.env
+.env.test
+.env.production
+.env.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build output
+dist/
+build/
+coverage/
+
+# Prisma
+# Keep migrations, but maybe ignore generated client if it's in a custom location (usually in node_modules anyway)
