@@ -71,7 +71,6 @@ exports.uploadDocument = async (req, res) => {
             data: {
                 userId,
                 userServiceId: userServiceId ? parseInt(userServiceId) : null,
-                serviceId: serviceId ? parseInt(serviceId) : null,
                 url: fileUrl,
                 fileName: req.file.originalname,
                 fileType: req.file.mimetype
@@ -92,7 +91,18 @@ exports.getMyDocuments = async (req, res) => {
         const userId = req.user.userId;
         const docs = await prisma.document.findMany({
             where: { userId },
-            orderBy: { uploadedAt: 'desc' }
+            orderBy: { uploadedAt: 'desc' },
+            include: {
+                userService: {
+                    include: {
+                        servicePlan: {
+                            include: {
+                                service: true
+                            }
+                        }
+                    }
+                }
+            }
         });
         res.json(docs);
     } catch (error) {

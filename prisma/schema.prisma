@@ -34,31 +34,54 @@ model Admin {
   updatedAt         DateTime  @updatedAt
 }
 
-model Service {
-  id                Int       @id @default(autoincrement())
-  name              String
-  description       String
-  price             Decimal
-  requiredDocuments String    // JSON array stored as string: ["doc1", "doc2"]
-  roadmap           String?   // JSON array stored as string: [{"step": 1, "title": "Apply", "description": "..."}]
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+model ServiceCategory {
+  id          Int       @id @default(autoincrement())
+  name        String    // e.g. "Business Registration"
+  slug        String?   @unique
+  description String?
+  services    Service[]
+}
 
-  userServices      UserService[]
+model Service {
+  id                Int             @id @default(autoincrement())
+  categoryId        Int
+  name              String          // e.g. "Private Limited Company"
+  slug              String?         @unique
+  description       String
+  requiredDocuments String?         // JSON array stored as string
+  roadmap           String?         // JSON array stored as string
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  category          ServiceCategory @relation(fields: [categoryId], references: [id])
+  plans             ServicePlan[]
+}
+
+model ServicePlan {
+  id          Int       @id @default(autoincrement())
+  serviceId   Int
+  name        String    // e.g. "Startup Plan", "Premium Plan"
+  price       Decimal
+  features    String?   // JSON array of features
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  service     Service   @relation(fields: [serviceId], references: [id])
+  userServices UserService[]
 }
 
 model UserService {
-  id        Int           @id @default(autoincrement())
-  userId    Int
-  serviceId Int
-  status    String        @default("PENDING_PAYMENT") // PENDING_PAYMENT, ACTIVE, COMPLETED, CANCELLED
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  id            Int           @id @default(autoincrement())
+  userId        Int
+  servicePlanId Int
+  status        String        @default("PENDING_PAYMENT") // PENDING_PAYMENT, ACTIVE, COMPLETED, CANCELLED
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
-  user      User          @relation(fields: [userId], references: [id])
-  service   Service       @relation(fields: [serviceId], references: [id])
-  payments  Payment[]
-  documents Document[]
+  user          User          @relation(fields: [userId], references: [id])
+  servicePlan   ServicePlan   @relation(fields: [servicePlanId], references: [id])
+  payments      Payment[]
+  documents     Document[]
 }
 
 model Payment {
@@ -66,13 +89,18 @@ model Payment {
   userServiceId Int
   amount        Decimal
   currency      String        @default("INR")
-  status        String        @default("CREATED") // CREATED, SUCCESS, FAILED
+  status        String        @default("CREATED") // CREATED, SUCCESS, FAILED, REFUNDED, PARTIALLY_REFUNDED
   transactionId String?
   orderId       String?
+  paymentMethod String?       // razorpay, stripe, bank_transfer, etc.
+  receiptUrl    String?       // URL to receipt/invoice
+  notes         String?       // Additional payment notes
+  metadata      String?       // JSON string for additional metadata
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
   userService   UserService   @relation(fields: [userServiceId], references: [id])
+  refunds       Refund[]
 }
 
 model Document {
@@ -139,4 +167,79 @@ model ConsultationService {
   consultationId Int
   serviceCode    String
   consultation   ConsultationRequest @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// PRODUCTION READINESS MODELS
+// ============================================
+
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  adminId     Int?     // Reference to Admin performing the action
+  userId      Int?     // Reference to User if action involves a user
+  action      String   // e.g., "SERVICE_CREATED", "USER_DELETED", "PAYMENT_REFUNDED"
+  entity      String   // e.g., "Service", "User", "Payment"
+  entityId    Int?     // ID of the affected entity
+  oldValue    String?  // JSON string of previous state
+  newValue    String?  // JSON string of new state
+  ipAddress   String?  // IP address of the requester
+  userAgent   String?  // Browser/client user agent
+  metadata    String?  // Additional context as JSON
+  createdAt   DateTime @default(now())
+
+  @@index([adminId])
+  @@index([userId])
+  @@index([action])
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+model BillingProfile {
+  id                Int      @id @default(autoincrement())
+  userId            Int      @unique // One billing profile per user
+  businessName      String?
+  gstin             String?  @unique // GST Identification Number
+  pan               String?  // PAN for individuals/businesses
+  billingAddress    String?
+  billingCity       String?
+  billingState      String?
+  billingPincode    String?
+  billingCountry    String?  @default("India")
+  shippingAddress   String?
+  shippingCity      String?
+  shippingState     String?
+  shippingPincode   String?
+  shippingCountry   String?  @default("India")
+  sameAsShipping    Boolean  @default(true) // Whether billing = shipping
+  contactPerson     String?
+  contactPhone      String?
+  contactEmail      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([gstin])
+}
+
+model Refund {
+  id                Int      @id @default(autoincrement())
+  paymentId         Int
+  amount            Decimal  // Refund amount
+  currency          String   @default("INR")
+  reason            String   // Reason for refund
+  status            String   @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  refundType        String   // FULL, PARTIAL, CREDIT_NOTE
+  transactionId     String?  // Refund transaction ID from payment gateway
+  creditNoteNumber  String?  @unique // For accounting purposes
+  processedBy       Int?     // Admin ID who processed the refund
+  notes             String?  // Admin notes
+  metadata          String?  // Additional data as JSON
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  payment           Payment  @relation(fields: [paymentId], references: [id])
+
+  @@index([paymentId])
+  @@index([status])
+  @@index([creditNoteNumber])
+  @@index([createdAt])
 }

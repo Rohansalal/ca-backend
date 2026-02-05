@@ -19,18 +19,9 @@ const consultationRoutes = require('./routes/consultationRoutes');
 const app = express();
 
 // ✅ Middleware Configuration
-// CORS - Allow frontend to communicate with backend
-app.use(cors({
-    origin: [
-        'http://localhost:5173', // Vite default port
-        'http://localhost:3000', // Alternative frontend port
-        'http://localhost:4173', // Vite preview port
-        process.env.CORS_ORIGIN || 'http://localhost:5173'
-    ],
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
+// CORS - Production-ready environment-based configuration
+const corsOptions = require('./config/cors');
+app.use(cors(corsOptions));
 
 // Security Headers
 app.use(helmet({
@@ -53,8 +44,8 @@ app.use(requestLogger);
 // Rate Limiting
 const limiter = rateLimit({
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
-    message: 'Too many requests from this IP, please try again later.',
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 1000, // Increased limit for dev
+    message: { error: 'Too many requests from this IP, please try again later.' },
     standardHeaders: true,
     legacyHeaders: false,
 });

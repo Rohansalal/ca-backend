@@ -8,6 +8,6 @@ router.get('/dashboard-stats', verifyToken, serviceController.getDashboardStats)
 router.get('/my-services', verifyToken, serviceController.getUserServices); // User - specific route first
 router.get('/:id', serviceController.getServiceById); // Public
 router.post('/select', verifyToken, serviceController.selectService); // User
-router.post('/', verifyToken, isAdmin, serviceController.createService); // Admin
+router.delete('/my-services/:id', verifyToken, serviceController.deleteUserService); // User - Delete pending service
 
 module.exports = router;

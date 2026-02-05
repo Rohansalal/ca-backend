@@ -5,9 +5,7 @@ const logger = require('../utils/logger');
 exports.getDashboardStats = async (req, res) => {
     try {
         const totalUsers = await prisma.user.count();
-        const totalAdmins = await prisma.user.count({
-            where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } }
-        });
+        const totalAdmins = await prisma.admin.count();
 
         const totalServices = await prisma.service.count();
         const totalServicesPurchased = await prisma.userService.count();
@@ -34,14 +32,31 @@ exports.getDashboardStats = async (req, res) => {
             select: { id: true, name: true, email: true, phone: true, createdAt: true }
         });
 
-        const recentServices = await prisma.userService.findMany({
+        const recentServicesRaw = await prisma.userService.findMany({
             orderBy: { createdAt: 'desc' },
             take: 10,
             include: {
                 user: { select: { name: true, email: true } },
-                service: { select: { name: true, price: true } }
+                servicePlan: {
+                    select: {
+                        name: true,
+                        price: true,
+                        service: { select: { name: true } }
+                    }
+                }
             }
         });
+
+        const recentServices = recentServicesRaw.map(item => ({
+            id: item.id,
+            user: item.user,
+            service: {
+                name: item.servicePlan.service.name,
+                price: item.servicePlan.price
+            },
+            status: item.status,
+            createdAt: item.createdAt
+        }));
 
         logger.info('ADMIN_DASHBOARD_ACCESSED', {
             adminId: req.user.userId,
@@ -140,11 +155,21 @@ exports.getAllServices = async (req, res) => {
         const { page = 1, limit = 10 } = req.query;
         const skip = (page - 1) * limit;
 
-        const services = await prisma.service.findMany({
+        const servicesRaw = await prisma.service.findMany({
             skip: parseInt(skip),
             take: parseInt(limit),
-            orderBy: { createdAt: 'desc' }
+            orderBy: { createdAt: 'desc' },
+            include: {
+                plans: true,
+                category: true
+            }
         });
+
+        const services = servicesRaw.map(svc => ({
+            ...svc,
+            price: svc.plans.length > 0 ? svc.plans[0].price : 0,
+            categoryName: svc.category ? svc.category.name : 'Uncategorized'
+        }));
 
         const totalCount = await prisma.service.count();
 
@@ -171,19 +196,19 @@ exports.getAllServices = async (req, res) => {
 // Get Service Purchases Analytics
 exports.getServiceAnalytics = async (req, res) => {
     try {
-        const serviceAnalytics = await prisma.service.findMany({
-            select: {
-                id: true,
-                name: true,
-                price: true,
-                _count: { select: { userServices: true } },
-                userServices: {
-                    select: { status: true }
+        const services = await prisma.service.findMany({
+            include: {
+                plans: {
+                    include: {
+                        userServices: {
+                            select: { status: true }
+                        }
+                    }
                 }
             }
         });
 
-        const formattedAnalytics = serviceAnalytics.map(service => {
+        const formattedAnalytics = services.map(service => {
             const statusCount = {
                 PENDING_PAYMENT: 0,
                 ACTIVE: 0,
@@ -191,15 +216,24 @@ exports.getServiceAnalytics = async (req, res) => {
                 CANCELLED: 0
             };
 
-            service.userServices.forEach(us => {
-                statusCount[us.status]++;
+            let totalPurchases = 0;
+            // Use price of first plan or 0 as representative
+            const displayPrice = service.plans.length > 0 ? service.plans[0].price : 0;
+
+            service.plans.forEach(plan => {
+                totalPurchases += plan.userServices.length;
+                plan.userServices.forEach(us => {
+                    if (statusCount[us.status] !== undefined) {
+                        statusCount[us.status]++;
+                    }
+                });
             });
 
             return {
                 id: service.id,
                 name: service.name,
-                price: service.price,
-                totalPurchases: service._count.userServices,
+                price: displayPrice,
+                totalPurchases: totalPurchases,
                 statusBreakdown: statusCount
             };
         });
@@ -325,15 +359,37 @@ exports.updateTicketStatus = async (req, res) => {
 // Create New Service
 exports.createService = async (req, res) => {
     try {
-        const { name, description, price, requiredDocuments } = req.body;
+        const { name, description, price, requiredDocuments, categoryId, categoryName } = req.body;
+
+        // Ensure a category exists
+        let catId = categoryId;
+        if (!catId) {
+            // Try to find a default or create one
+            const defaultCat = await prisma.serviceCategory.findFirst();
+            if (defaultCat) {
+                catId = defaultCat.id;
+            } else {
+                const newCat = await prisma.serviceCategory.create({
+                    data: { name: categoryName || 'General Services', slug: 'general-services' }
+                });
+                catId = newCat.id;
+            }
+        }
 
         const service = await prisma.service.create({
             data: {
                 name,
                 description,
-                price: parseFloat(price),
-                requiredDocuments: JSON.stringify(requiredDocuments)
-            }
+                categoryId: parseInt(catId),
+                requiredDocuments: JSON.stringify(requiredDocuments),
+                plans: {
+                    create: {
+                        name: 'Standard Plan',
+                        price: parseFloat(price)
+                    }
+                }
+            },
+            include: { plans: true }
         });
 
         logger.info('ADMIN_CREATE_SERVICE', {
@@ -355,16 +411,36 @@ exports.updateService = async (req, res) => {
         const { serviceId } = req.params;
         const { name, description, price, requiredDocuments } = req.body;
 
+        // Update Service
         const service = await prisma.service.update({
             where: { id: parseInt(serviceId) },
             data: {
                 name,
                 description,
-                price: parseFloat(price),
                 requiredDocuments: JSON.stringify(requiredDocuments),
                 updatedAt: new Date()
-            }
+            },
+            include: { plans: true }
         });
+
+        // Update Plan Price (assuming updating first plan)
+        if (service.plans.length > 0 && price) {
+            await prisma.servicePlan.update({
+                where: { id: service.plans[0].id },
+                data: { price: parseFloat(price) }
+            });
+            // Update local object for response
+            service.plans[0].price = parseFloat(price);
+        } else if (price) {
+            // Create a plan if none exists? (Corner case)
+            await prisma.servicePlan.create({
+                data: {
+                    serviceId: service.id,
+                    name: 'Standard Plan',
+                    price: parseFloat(price)
+                }
+            });
+        }
 
         logger.info('ADMIN_UPDATE_SERVICE', {
             adminId: req.user.userId,
