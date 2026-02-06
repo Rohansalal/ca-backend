@@ -29,5 +29,12 @@ dist/
 build/
 coverage/
 
+# Uploads (user files - don't commit to git)
+uploads/
+
+# Database files
+*.db
+*.db-journal
+
 # Prisma
 # Keep migrations, but maybe ignore generated client if it's in a custom location (usually in node_modules anyway)

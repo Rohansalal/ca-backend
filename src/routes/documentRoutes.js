@@ -11,6 +11,9 @@ router.post('/upload', verifyToken, documentController.uploadMiddleware, documen
 // Get user's documents
 router.get('/', verifyToken, documentController.getMyDocuments);
 
+// Download single document
+router.get('/download-file/:id', verifyToken, documentController.downloadDocument);
+
 // Download service documents bundle (ZIP)
 router.get('/download/:userServiceId', verifyToken, async (req, res) => {
     try {

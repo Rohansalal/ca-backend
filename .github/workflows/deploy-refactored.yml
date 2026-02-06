@@ -1,0 +1,179 @@
+name: Deploy Refactored Backend to EC2
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to EC2 (MySQL + Local Storage)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies locally (for testing)
+        run: |
+          npm ci --omit=dev
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key.pem
+          chmod 600 ~/.ssh/ec2_key.pem
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USERNAME }}
+        run: |
+          ssh -i ~/.ssh/ec2_key.pem ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
+            set -e
+            
+            echo "🚀 Starting deployment..."
+            
+            # Navigate to app directory
+            cd /var/www/ca-website
+            
+            # Stop PM2 process
+            pm2 stop ca-backend || true
+            
+            # Backup current code
+            if [ -d "src" ]; then
+              echo "📦 Backing up current version..."
+              tar -czf backups/backup-$(date +%Y%m%d-%H%M%S).tar.gz src package.json prisma || true
+            fi
+            
+            # Pull latest code
+            echo "📥 Pulling latest code..."
+            if [ -d ".git" ]; then
+              git fetch origin
+              git reset --hard origin/main
+              git pull origin main
+            else
+              git clone git@github.com:YOUR_USERNAME/ca-website-backend.git temp_repo
+              mv temp_repo/* .
+              mv temp_repo/.* . 2>/dev/null || true
+              rm -rf temp_repo
+            fi
+            
+            # Install dependencies (production only, no aws-sdk)
+            echo "📦 Installing dependencies..."
+            npm ci --omit=dev
+            
+            # Ensure uploads directory exists
+            echo "📁 Setting up uploads directory..."
+            mkdir -p uploads/documents
+            chmod 755 uploads
+            chown -R ubuntu:ubuntu uploads
+            
+            # Generate Prisma Client
+            echo "🔧 Generating Prisma Client..."
+            npx prisma generate
+            
+            # Run database migrations
+            echo "🗄️  Running database migrations..."
+            npx prisma migrate deploy
+            
+            echo "✅ Deployment complete!"
+          ENDSSH
+
+      - name: Upload .env file
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USERNAME }}
+        run: |
+          echo "${{ secrets.ENV_FILE }}" > .env.production
+          scp -i ~/.ssh/ec2_key.pem .env.production ${EC2_USER}@${EC2_HOST}:/var/www/ca-website/.env
+          rm .env.production
+
+      - name: Restart Application
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USERNAME }}
+        run: |
+          ssh -i ~/.ssh/ec2_key.pem ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
+            cd /var/www/ca-website
+            
+            # Start/Restart PM2
+            if pm2 list | grep -q "ca-backend"; then
+              echo "🔄 Restarting application..."
+              pm2 restart ca-backend
+            else
+              echo "🚀 Starting application for first time..."
+              pm2 start src/server.js --name ca-backend -i max
+              pm2 save
+            fi
+            
+            # Show status
+            pm2 status
+            
+            # Verify uploads directory
+            ls -la uploads/
+            
+            echo "✅ Application restarted successfully!"
+          ENDSSH
+
+      - name: Health Check
+        run: |
+          sleep 10
+          curl -f http://${{ secrets.EC2_HOST }}/health || exit 1
+          echo "✅ Health check passed!"
+
+      - name: Verify File Storage
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USERNAME }}
+        run: |
+          ssh -i ~/.ssh/ec2_key.pem ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
+            echo "📁 Verifying file storage setup..."
+            
+            # Check uploads directory
+            if [ -d "/var/www/ca-website/uploads/documents" ]; then
+              echo "✅ Uploads directory exists"
+              ls -lah /var/www/ca-website/uploads/
+            else
+              echo "❌ Uploads directory missing!"
+              exit 1
+            fi
+            
+            # Check permissions
+            PERMS=$(stat -c "%a" /var/www/ca-website/uploads)
+            if [ "$PERMS" = "755" ]; then
+              echo "✅ Correct permissions (755)"
+            else
+              echo "⚠️  Permissions: $PERMS (expected 755)"
+            fi
+          ENDSSH
+
+      - name: Cleanup
+        run: |
+          rm -f ~/.ssh/ec2_key.pem
+
+      - name: Deployment Summary
+        run: |
+          echo "🎉 Deployment Summary"
+          echo "===================="
+          echo "✅ Code deployed to EC2"
+          echo "✅ Dependencies installed (no AWS SDK)"
+          echo "✅ Prisma Client generated"
+          echo "✅ Database migrations applied"
+          echo "✅ Uploads directory configured"
+          echo "✅ Application restarted with PM2"
+          echo "✅ Health check passed"
+          echo ""
+          echo "📊 Stack:"
+          echo "  - Database: MySQL"
+          echo "  - File Storage: Local (/var/www/ca-website/uploads)"
+          echo "  - Process Manager: PM2 (cluster mode)"
+          echo "  - Reverse Proxy: Nginx"

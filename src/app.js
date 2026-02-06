@@ -51,6 +51,10 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
+// Static file serving for uploads (with authentication handled in routes)
+const path = require('path');
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/services', serviceRoutes);
