@@ -30,7 +30,14 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key.pem
           chmod 600 ~/.ssh/ec2_key.pem
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          
+          # Add SSH config to disable strict host key checking for automated deployment
+          cat >> ~/.ssh/config <<EOF
+          Host ${{ secrets.EC2_HOST }}
+            StrictHostKeyChecking no
+            UserKnownHostsFile=/dev/null
+          EOF
+          chmod 600 ~/.ssh/config
 
       - name: Deploy to EC2
         env:
@@ -43,7 +50,7 @@ jobs:
             echo "🚀 Starting deployment..."
             
             # Navigate to app directory
-            cd /var/www/ca-website
+            cd /var/www/ca-website/ca-backend
             
             # Stop PM2 process
             pm2 stop ca-backend || true
@@ -51,7 +58,8 @@ jobs:
             # Backup current code
             if [ -d "src" ]; then
               echo "📦 Backing up current version..."
-              tar -czf backups/backup-$(date +%Y%m%d-%H%M%S).tar.gz src package.json prisma || true
+              mkdir -p ../backups
+              tar -czf ../backups/backup-$(date +%Y%m%d-%H%M%S).tar.gz . || true
             fi
             
             # Pull latest code
@@ -94,7 +102,7 @@ jobs:
           EC2_USER: ${{ secrets.EC2_USERNAME }}
         run: |
           echo "${{ secrets.ENV_FILE }}" > .env.production
-          scp -i ~/.ssh/ec2_key.pem .env.production ${EC2_USER}@${EC2_HOST}:/var/www/ca-website/.env
+          scp -i ~/.ssh/ec2_key.pem .env.production ${EC2_USER}@${EC2_HOST}:/var/www/ca-website/ca-backend/.env
           rm .env.production
 
       - name: Restart Application
@@ -103,7 +111,7 @@ jobs:
           EC2_USER: ${{ secrets.EC2_USERNAME }}
         run: |
           ssh -i ~/.ssh/ec2_key.pem ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
-            cd /var/www/ca-website
+            cd /var/www/ca-website/ca-backend
             
             # Start/Restart PM2
             if pm2 list | grep -q "ca-backend"; then
@@ -139,16 +147,16 @@ jobs:
             echo "📁 Verifying file storage setup..."
             
             # Check uploads directory
-            if [ -d "/var/www/ca-website/uploads/documents" ]; then
+            if [ -d "/var/www/ca-website/ca-backend/uploads/documents" ]; then
               echo "✅ Uploads directory exists"
-              ls -lah /var/www/ca-website/uploads/
+              ls -lah /var/www/ca-website/ca-backend/uploads/
             else
               echo "❌ Uploads directory missing!"
               exit 1
             fi
             
             # Check permissions
-            PERMS=$(stat -c "%a" /var/www/ca-website/uploads)
+            PERMS=$(stat -c "%a" /var/www/ca-website/ca-backend/uploads)
             if [ "$PERMS" = "755" ]; then
               echo "✅ Correct permissions (755)"
             else

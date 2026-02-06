@@ -1,7 +1,8 @@
 # 🚀 Complete VPS Deployment Guide - Start to Finish
 
 **CA Website Backend - Production Deployment**  
-**VPS**: ec2-3-6-39-164.ap-south-1.compute.amazonaws.com
+**VPS**: ec2-43-205-216-148.ap-south-1.compute.amazonaws.com  
+**Instance ID**: i-004debb455d0ad121 (ca_website_backend)
 
 ---
 
@@ -247,7 +248,7 @@ Paste this configuration:
 ```nginx
 server {
     listen 80;
-    server_name ec2-3-6-39-164.ap-south-1.compute.amazonaws.com;
+    server_name ec2-43-205-216-148.ap-south-1.compute.amazonaws.com;
 
     # Security headers
     add_header X-Frame-Options "SAMEORIGIN" always;
@@ -301,7 +302,7 @@ sudo systemctl restart nginx
 
 ```bash
 # From your local machine:
-curl http://ec2-3-6-39-164.ap-south-1.compute.amazonaws.com/health
+curl http://ec2-43-205-216-148.ap-south-1.compute.amazonaws.com/health
 ```
 
 ---
@@ -360,7 +361,7 @@ curl http://localhost:5000/health
 curl http://localhost:5000/api/services
 
 # External access
-curl http://ec2-3-6-39-164.ap-south-1.compute.amazonaws.com/health
+curl http://ec2-43-205-216-148.ap-south-1.compute.amazonaws.com/health
 ```
 
 ---
@@ -435,8 +436,8 @@ mysql -u ca_app_user -p ca_website_prod < backup.sql
 ## 🎉 Deployment Complete!
 
 Your backend is now running at:
-- **Health**: http://ec2-3-6-39-164.ap-south-1.compute.amazonaws.com/health
-- **API**: http://ec2-3-6-39-164.ap-south-1.compute.amazonaws.com/api/
+- **Health**: http://ec2-43-205-216-148.ap-south-1.compute.amazonaws.com/health
+- **API**: http://ec2-43-205-216-148.ap-south-1.compute.amazonaws.com/api/
 
 ### Next Steps:
 
